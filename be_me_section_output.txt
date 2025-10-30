@@ -1,0 +1,75 @@
+====================
+BE_ME Returns Analysis
+====================
+be_me_1975_2012: (552, 8) - Table Name: be_me_1975_2012
+====================================================================================================
+Row Indices (first 2 and last 2):
+Index 0 -> 1975-01-31 00:00:00
+Index 1 -> 1975-02-28 00:00:00
+...
+Index 550 -> 2020-11-30 00:00:00
+Index 551 -> 2020-12-31 00:00:00
+
+Column Indices (first 3 and last 3):
+Index 0 -> location
+Index 1 -> name
+Index 2 -> freq
+...
+Index 5 -> n_stocks
+Index 6 -> n_stocks_min
+Index 7 -> ret
+
+Head:
+           location   name     freq weighting direction n_stocks n_stocks_min                  ret
+date                                                                                              
+1975-01-31      usa  be_me  monthly    vw_cap         1     2742          836    0.174416538179592
+1975-02-28      usa  be_me  monthly    vw_cap         1     2721          860  -0.0344713783062949
+
+Tail:
+           location   name     freq weighting direction n_stocks n_stocks_min                    ret
+date                                                                                                
+2020-11-30      usa  be_me  monthly    vw_cap         1     2806         1053     0.0548503751314116
+2020-12-31      usa  be_me  monthly    vw_cap         1     2789         1062  -0.000208127450727132
+
+Autocorrelation vs Partial Autocorrelation (be_me_1975_2020):
+--------------------------------------------------
+     Correlation  Partial Autocorrelation
+Lag                                      
+1       0.120771                 0.118453
+2       0.097565                 0.081338
+3      -0.034761                -0.056695
+4       0.082803                 0.085343
+5      -0.101632                -0.115765
+6       0.083931                 0.098127
+7       0.030764                 0.035664
+8       0.066087                 0.025386
+9      -0.018982                -0.008674
+10      0.055053                 0.026845
+11      0.053529                 0.066795
+12      0.005448                -0.025873
+
+======================================================================
+ ARMA Models for ARMA Models BE_ME Returns (1975-2020) - Regression Estimation
+======================================================================
+
+REGRESSION ESTIMATION::
+--------------------------------------------------
+           Constant     AR(1)     AR(2)     MA(1)
+Model                                            
+ARMA(1,0)  0.001372  0.118453                    
+ARMA(1,1)  0.001459  0.072741            0.048229
+ARMA(0,1)  0.001910                      0.108823
+ARMA(2,0)  0.001322  0.121373  0.081338          
+
+======================================================================
+ ARMA Models for ARMA Models BE_ME Returns (1975-2020) - MLE Estimation
+======================================================================
+
+REGRESSION ESTIMATION::
+--------------------------------------------------
+           Constant     AR(1)     AR(2)      MA(1)
+Model                                             
+ARMA(1,0)  0.001687  0.117602                     
+ARMA(1,1)  0.000914  0.491373            -0.373842
+ARMA(0,1)  0.001946                       0.099303
+ARMA(2,0)  0.001551  0.107983  0.083304           
