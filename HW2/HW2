@@ -1,0 +1,1186 @@
+import pandas as pd
+import numpy as np
+import warnings
+import os
+import sys
+import matplotlib.pyplot as plt
+
+# Suppress all warnings
+warnings.filterwarnings('ignore')
+pd.set_option('future.no_silent_downcasting', True)
+
+class OutputCapture:
+    """Class to capture all print output for text file generation"""
+    
+    def __init__(self):
+        self.captured_lines = []
+        self.original_stdout = sys.stdout
+        
+    def start_capture(self):
+        """Start capturing output"""
+        sys.stdout = self
+        
+    def stop_capture(self):
+        """Stop capturing output"""
+        sys.stdout = self.original_stdout
+        
+    def write(self, text):
+        """Capture written text"""
+        if text.strip():  # Only capture non-empty lines
+            self.captured_lines.append(text.rstrip('\n'))
+        self.original_stdout.write(text)
+        
+    def flush(self):
+        """Flush output"""
+        self.original_stdout.flush()
+
+# Global output capture instance
+output_capture = OutputCapture()
+
+class OutputFormatter:
+    """Professional output formatting class for financial analysis results"""
+    
+    def __init__(self):
+        self.section_counter = 1
+        self.subsection_counter = 1
+        self.regression_counter = 1
+        
+    def print_header(self, title, level=1):
+        """Print a formatted header"""
+        if level == 1:
+            print("\n" + "="*80)
+            print(f" {title}")
+            print("="*80)
+        elif level == 2:
+            print(f"\n{self.section_counter}. {title}")
+            print("-" * 60)
+            self.section_counter += 1
+        elif level == 3:
+            print(f"\n{self.section_counter}.{self.subsection_counter} {title}")
+            print("-" * 40)
+            self.subsection_counter += 1
+    
+    def print_subsection(self, title):
+        """Print a subsection header"""
+        print(f"\n{self.section_counter}.{self.subsection_counter} {title}")
+        print("-" * 40)
+        self.subsection_counter += 1
+    
+    def print_problem_header(self, problem_num, description):
+        """Print a problem header with professional formatting"""
+        print(f"\n{'='*80}")
+        print(f" PROBLEM {problem_num}: {description}")
+        print(f"{'='*80}")
+    
+    def print_regression_header(self, regression_num, description):
+        """Print a regression header"""
+        print(f"\n{self.regression_counter}. {description}")
+        print("-" * 50)
+        self.regression_counter += 1
+    
+    def print_results_table(self, title, data_dict, precision=6):
+        """Print results in a formatted table"""
+        print(f"\n{title}:")
+        print("-" * 50)
+        for key, value in data_dict.items():
+            if isinstance(value, (int, float)):
+                print(f"  {key:<25}: {value:.{precision}f}")
+            else:
+                print(f"  {key:<25}: {value}")
+    
+    def print_matrix(self, title, matrix):
+        """Print a matrix with proper formatting"""
+        print(f"\n{title}:")
+        print("-" * 50)
+        print(matrix.to_string())
+    
+    def print_statistics(self, title, stats_dict, precision=6):
+        """Print statistics in a formatted table"""
+        print(f"\n{title}:")
+        print("-" * 60)
+        print(f"{'Parameter':<15} {'Value':<12} {'SE':<12} {'T-stat':<12}")
+        print("-" * 60)
+        
+        for param, values in stats_dict.items():
+            if isinstance(values, dict) and 'value' in values:
+                print(f"{param:<15} {values['value']:<12.{precision}f} {values.get('se', 0):<12.{precision}f} {values.get('t_stat', 0):<12.{precision}f}")
+            else:
+                print(f"{param:<15} {values:<12.{precision}f}")
+    
+    def print_summary(self, title, summary_dict):
+        """Print a summary section"""
+        print(f"\n{title}:")
+        print("-" * 50)
+        for key, value in summary_dict.items():
+            print(f"  {key}: {value}")
+    
+    def print_analysis_question(self, question):
+        """Print an analysis question with proper formatting"""
+        print(f"\n{'ANALYSIS QUESTION':<20}")
+        print("-" * 50)
+        print(f"{question}")
+        print("-" * 50)
+
+# Create global formatter instance
+formatter = OutputFormatter()
+
+
+def import_table(sheet_name, start_row, end_row, start_col, end_col, header_row, table_name, index_col=0, date_col=None, date_format='YYYYMM', file_path=None, convert_dates=True, filter_missing=True, second_header_row=None):
+
+
+    """
+    Import a table from Excel or CSV file with specified parameters
+    
+    Parameters:
+    - second_header_row: Row number for second header (optional, for two-level headers)
+    - date_col: Column containing dates to use as index. Can be:
+        * int -> zero-based position within the selected table slice
+        * str -> exact column name after headers are assigned
+      If provided, this takes precedence over index_col for setting the datetime index.
+    """
+    
+    def normalize_date_format(fmt):
+        token_map = {
+            'YYYY': '%Y',
+            'YY': '%y',
+            'MM': '%m',
+            'DD': '%d'
+        }
+        if fmt in ('YYYYMM', 'YYYY'):
+            return None
+        norm = fmt
+        for k, v in token_map.items():
+            norm = norm.replace(k, v)
+        return norm
+
+    def convert_date_format(date_value, date_format):
+        if pd.isna(date_value) or date_value == '':
+            return pd.NaT
+        try:
+            if date_format == 'YYYYMM':
+                date_str = str(int(float(date_value))) if isinstance(date_value, (float, int)) else str(date_value).strip()
+                return pd.to_datetime(date_str, format='%Y%m', errors='coerce')
+            elif date_format == 'YYYY':
+                date_str = str(int(float(date_value))) if isinstance(date_value, (float, int)) else str(date_value).strip()
+                return pd.to_datetime(date_str, format='%Y', errors='coerce')
+            else:
+                norm = normalize_date_format(date_format)
+                if norm:
+                    return pd.to_datetime(str(date_value).strip(), format=norm, errors='coerce')
+                return pd.to_datetime(date_value, errors='coerce')
+        except Exception:
+            return pd.NaT
+
+    def filter_missing_data(df):
+        df = df.replace([-99.99, -999, -99.9, -99], np.nan).infer_objects(copy=False)
+        return df
+    
+    def col_letter_to_num(col_letter):
+        result = 0
+        for char in col_letter:
+            result = result * 26 + (ord(char) - ord('A') + 1)
+        return result - 1
+    
+    start_col_num = col_letter_to_num(start_col)
+    end_col_num = col_letter_to_num(end_col)
+    
+    if file_path is None:
+        script_dir = os.path.dirname(os.path.abspath(__file__))
+        file_path = os.path.join(script_dir, 'Problem_Set5.xls')
+    
+    if not os.path.exists(file_path):
+        raise FileNotFoundError(f"File not found: {file_path}")
+    
+    file_extension = os.path.splitext(file_path)[1].lower()
+    
+    if file_extension in ['.xls', '.xlsx', '.xlsm']:
+        df = pd.read_excel(file_path, sheet_name=sheet_name, header=None)
+    elif file_extension == '.csv':
+        df = pd.read_csv(file_path, header=None)
+    else:
+        raise ValueError(f"Unsupported file format: {file_extension}. Supported formats: .xls, .xlsx, .xlsm, .csv")
+    
+    table = df.iloc[start_row-1:end_row, start_col_num:end_col_num+1].copy()
+    
+    # Handle single or double headers
+    if second_header_row is not None:
+        # Two header rows - combine them
+        header1 = df.iloc[header_row-1, start_col_num:end_col_num+1].values
+        header2 = df.iloc[second_header_row-1, start_col_num:end_col_num+1].values
+        # Combine headers with underscore separator
+        combined_headers = [f"{h1}_{h2}" if pd.notna(h1) and pd.notna(h2) and str(h1) != 'nan' and str(h2) != 'nan' 
+                           else str(h1) if pd.notna(h1) and str(h1) != 'nan' 
+                           else str(h2) if pd.notna(h2) and str(h2) != 'nan'
+                           else f"col_{i}" for i, (h1, h2) in enumerate(zip(header1, header2))]
+        table.columns = combined_headers
+    else:
+        # Single header row
+        headers = df.iloc[header_row-1, start_col_num:end_col_num+1].values
+        table.columns = headers
+    
+    table = table.dropna(how="all")
+    
+    def resolve_date_col_name(date_col):
+        if isinstance(date_col, int):
+            if date_col < 0 or date_col >= table.shape[1]:
+                raise IndexError(f"date_col index {date_col} is out of bounds for table with {table.shape[1]} columns.")
+            return table.columns[date_col]
+        if isinstance(date_col, str):
+            s = date_col.strip().upper()
+            if s.isalpha():
+                abs_idx = col_letter_to_num(s)
+                if abs_idx < start_col_num or abs_idx > end_col_num:
+                    raise IndexError(f"date_col '{date_col}' is outside the selected range {start_col}:{end_col}.")
+                rel_idx = abs_idx - start_col_num
+                return table.columns[rel_idx]
+            if date_col in table.columns:
+                return date_col
+            raise KeyError(f"date_col '{date_col}' not found in columns: {list(table.columns)}")
+        if index_col < 0 or index_col >= table.shape[1]:
+            raise IndexError(f"index_col {index_col} is out of bounds for table with {table.shape[1]} columns.")
+        return table.columns[index_col]
+
+    if convert_dates:
+        if date_col is not None:
+            date_col_name = resolve_date_col_name(date_col)
+        else:
+            if index_col < 0 or index_col >= table.shape[1]:
+                raise IndexError(f"index_col {index_col} is out of bounds for table with {table.shape[1]} columns.")
+            date_col_name = table.columns[index_col]
+
+        table[date_col_name] = table[date_col_name].apply(lambda x: convert_date_format(x, date_format))
+        table.set_index(date_col_name, inplace=True)
+        table = table[~table.index.isna()]
+    else:
+        table.set_index(table.columns[index_col], inplace=True)
+    
+    if filter_missing:
+        table = filter_missing_data(table)
+    
+    table.attrs['table_name'] = table_name
+    return table
+
+
+def print_table_info(table, table_description):
+    """
+    Print table information including head, tail, and indices
+    
+    USAGE EXAMPLES:
+    ===============
+    # Basic usage
+    print_table_info(data, "Market Returns Data")
+    
+    # After importing data
+    market_data = import_table(...)
+    print_table_info(market_data, "Fama-French Factors")
+    
+    WHAT IT DOES:
+    =============
+    - Displays table shape and table name
+    - Shows first 2 and last 2 row indices with continuation dots
+    - Shows first 3 and last 3 column indices with continuation dots
+    - Displays first 2 rows of data (head)
+    - Displays last 2 rows of data (tail)
+    - Provides clean, formatted output for data inspection
+    
+    Parameters:
+    - table: pandas DataFrame to analyze
+    - table_description: String description of the table for display
+    
+    Returns:
+    - None (prints information to console)
+    """
+    print(f"{table_description}: {table.shape} - Table Name: {table.attrs.get('table_name', 'Unknown')}")
+    print("="*100)
+    print("Row Indices (first 2 and last 2):")
+    # Print first 2 row indices
+    for i, idx in enumerate(table.head(2).index):
+        print(f"Index {i} -> {idx}")
+    # Print dots to indicate continuation
+    print("...")
+    # Print last 2 row indices
+    for i, idx in enumerate(table.tail(2).index, len(table.index)-2):
+        print(f"Index {i} -> {idx}")
+    print("\nColumn Indices (first 3 and last 3):")
+    # Print first 3 column indices
+    for i, col in enumerate(table.columns[:3]):
+        print(f"Index {i} -> {col}")
+    # Print dots to indicate continuation
+    print("...")
+    # Print last 3 column indices
+    for i, col in enumerate(table.columns[-3:], len(table.columns)-3):
+        print(f"Index {i} -> {col}")
+    print("\nHead:")
+    print(table.head(2))
+    print("\nTail:")
+    print(table.tail(2))
+    print()
+
+def linear_regression(dependent_var, independent_var, verbose=True):
+    """
+    OLS y = a + b x + e using scipy.linregress for b and a,
+    then compute additional stats with correct SE(a).
+    """
+    from scipy import stats
+    
+    y = np.asarray(dependent_var, dtype=float)
+    x = np.asarray(independent_var, dtype=float)
+
+    mask = np.isfinite(x) & np.isfinite(y)
+    x, y = x[mask], y[mask]
+    n = x.size
+    if n < 3:
+        raise ValueError("Need at least 3 valid observations.")
+    if np.allclose(x, x.mean()):
+        raise ValueError("X has (near) zero variance; slope undefined.")
+
+    # primary estimates via scipy
+    slope, intercept, r_value, p_value_slope, se_slope = stats.linregress(x, y)
+    r_squared = r_value ** 2
+
+    # fitted values and residuals
+    y_hat = intercept + slope * x
+    resid = y - y_hat
+
+    # residual std. error (a.k.a. sigma-hat)
+    s2 = (resid @ resid) / (n - 2)
+    se_regression = np.sqrt(s2)
+
+    # pieces for SEs
+    xbar = x.mean()
+    Sxx = np.sum((x - xbar) ** 2)
+
+    # correct SE(intercept) and t-stat
+    se_intercept = se_regression * np.sqrt(1.0/n + (xbar**2) / Sxx)
+    t_stat_intercept = intercept / se_intercept
+
+    # slope t-stat matches scipy: slope / se_slope
+    t_stat_slope = slope / se_slope
+
+    # p-value for intercept (two-sided)
+    t = stats.t(df=n-2)
+    p_value_intercept = 2 * (1 - t.cdf(abs(t_stat_intercept)))
+
+    mse = float(s2)
+    rmse = np.sqrt(mse)
+
+    results = {
+        "intercept": intercept,
+        "slope": slope,
+        "r_squared": r_squared,
+        "correlation": r_value,
+        "std_error_slope": se_slope,
+        "std_error_intercept": se_intercept,
+        "std_error_regression": se_regression,
+        "t_stat_slope": t_stat_slope,
+        "t_stat_intercept": t_stat_intercept,
+        "p_value_slope": p_value_slope,
+        "p_value_intercept": p_value_intercept,
+        "n_observations": n,
+        "mse": mse,
+        "rmse": rmse,
+    }
+    
+    if verbose:
+        print(f"REGRESSION RESULTS:")
+        print(f"  Intercept (a): {intercept:.6f}")
+        print(f"  Slope (b): {slope:.6f}")
+        print(f"  Intercept SE: {se_intercept:.6f}")
+        print(f"  Slope SE: {se_slope:.6f}")
+        print(f"  R-squared: {r_squared:.6f}")
+        print(f"  T-stat intercept: {t_stat_intercept:.6f}")
+        print(f"  T-stat slope: {t_stat_slope:.6f}")
+        print(f"  P-value intercept: {p_value_intercept:.6f}")
+        print(f"  P-value slope: {p_value_slope:.6f}")
+        print(f"  Number of observations: {n}")
+        print(f"  RMSE: {rmse:.6f}")
+    
+    return results
+
+def multivariate_regression(dependent_var, independent_vars, verbose=True):
+    """
+    OLS y = a + b1*x1 + b2*x2 + ... + bn*xn + e using numpy for multi-variate regression
+    """
+    from scipy import stats
+    
+    # Handle date alignment if inputs are pandas Series/DataFrames
+    if hasattr(dependent_var, 'index') and hasattr(independent_vars, 'index'):
+        # Both are pandas objects - align on common dates
+        common_dates = dependent_var.index.intersection(independent_vars.index)
+        y_aligned = dependent_var.loc[common_dates]
+        X_aligned = independent_vars.loc[common_dates]
+        y = np.asarray(y_aligned, dtype=float)
+        X = np.asarray(X_aligned, dtype=float)
+    elif hasattr(dependent_var, 'index'):
+        # Only dependent_var is pandas - convert independent_vars to numpy
+        y = np.asarray(dependent_var, dtype=float)
+        X = np.asarray(independent_vars, dtype=float)
+    else:
+        # Both are already numpy arrays
+        y = np.asarray(dependent_var, dtype=float)
+        X = np.asarray(independent_vars, dtype=float)
+    
+    # Ensure X is 2D
+    if X.ndim == 1:
+        X = X.reshape(-1, 1)
+    
+    # Remove rows with any NaN values
+    mask = np.isfinite(y) & np.all(np.isfinite(X), axis=1)
+    y_clean = y[mask]
+    X_clean = X[mask]
+    
+    n = len(y_clean)
+    k = X_clean.shape[1]  # Number of independent variables
+    
+    if n < k + 1:  # Need at least k+1 observations for k variables + intercept
+        raise ValueError(f"Need at least {k+1} valid observations for {k}-variable regression.")
+    
+    # Check for multicollinearity (if X'X is singular)
+    try:
+        det_XTX = np.linalg.det(X_clean.T @ X_clean)
+        if abs(det_XTX) < 1e-10:
+            raise ValueError("Independent variables are perfectly correlated (singular matrix).")
+    except np.linalg.LinAlgError:
+        raise ValueError("Independent variables are perfectly correlated (singular matrix).")
+    
+    # Manual OLS calculation using normal equations
+    # Add intercept column
+    X_with_intercept = np.column_stack([np.ones(n), X_clean])
+    
+    try:
+        # Calculate coefficients using normal equations: (X'X)^(-1) X'y
+        XTX_inv = np.linalg.inv(X_with_intercept.T @ X_with_intercept)
+        coefficients = XTX_inv @ X_with_intercept.T @ y_clean
+        
+        # Extract intercept and slopes
+        intercept = coefficients[0]
+        slopes = coefficients[1:]
+        
+        # Calculate fitted values and residuals
+        y_hat = X_with_intercept @ coefficients
+        residuals = y_clean - y_hat
+        
+        # Calculate R-squared
+        ss_res = np.sum(residuals**2)
+        ss_tot = np.sum((y_clean - np.mean(y_clean))**2)
+        r_squared = 1 - (ss_res / ss_tot) if ss_tot > 0 else 0.0
+        
+        # Calculate standard errors
+        mse = ss_res / (n - k - 1)  # n - k - 1
+        rmse = np.sqrt(mse)
+        
+        # Calculate covariance matrix of coefficients
+        cov_matrix = mse * XTX_inv
+        se_intercept = np.sqrt(cov_matrix[0, 0])
+        se_slopes = np.sqrt(np.diag(cov_matrix[1:, 1:]))
+        
+        # Calculate t-statistics
+        t_stat_intercept = intercept / se_intercept if se_intercept > 0 else 0
+        t_stat_slopes = slopes / se_slopes
+        t_stat_slopes = np.where(se_slopes > 0, t_stat_slopes, 0)
+        
+        # Calculate p-values
+        df = n - k - 1
+        if df > 0:
+            t_dist = stats.t(df=df)
+            p_value_intercept = 2 * (1 - t_dist.cdf(abs(t_stat_intercept))) if se_intercept > 0 else 1.0
+            p_value_slopes = 2 * (1 - t_dist.cdf(abs(t_stat_slopes)))
+            p_value_slopes = np.where(se_slopes > 0, p_value_slopes, 1.0)
+        else:
+            p_value_intercept = 1.0
+            p_value_slopes = np.ones(len(slopes))
+        
+        results = {
+            "intercept": intercept,
+            "slopes": slopes,
+            "r_squared": r_squared,
+            "std_error_intercept": se_intercept,
+            "std_error_slopes": se_slopes,
+            "std_error_regression": rmse,
+            "t_stat_intercept": t_stat_intercept,
+            "t_stat_slopes": t_stat_slopes,
+            "p_value_intercept": p_value_intercept,
+            "p_value_slopes": p_value_slopes,
+            "n_observations": n,
+            "n_variables": k,
+            "mse": mse,
+            "rmse": rmse,
+            "residuals": residuals,
+            "fitted_values": y_hat
+        }
+        
+        if verbose:
+            print(f"MULTIVARIATE REGRESSION RESULTS:")
+            print(f"  Intercept (a): {intercept:.6f}")
+            print(f"  Intercept SE: {se_intercept:.6f}")
+            print(f"  T-stat intercept: {t_stat_intercept:.6f}")
+            print(f"  P-value intercept: {p_value_intercept:.6f}")
+            print()
+            
+            for i, slope in enumerate(slopes):
+                print(f"  Slope b{i+1}: {slope:.6f}")
+                print(f"  SE b{i+1}: {se_slopes[i]:.6f}")
+                print(f"  T-stat b{i+1}: {t_stat_slopes[i]:.6f}")
+                print(f"  P-value b{i+1}: {p_value_slopes[i]:.6f}")
+                print()
+            
+            print(f"  R-squared: {r_squared:.6f}")
+            print(f"  RMSE: {rmse:.6f}")
+            print(f"  Number of observations: {n}")
+            print(f"  Number of variables: {k}")
+        
+        return results
+        
+    except np.linalg.LinAlgError as e:
+        raise ValueError(f"Matrix inversion failed: {str(e)}")
+    except Exception as e:
+        raise ValueError(f"Multivariate regression failed: {str(e)}")
+
+
+def calculate_lag_correlation(table, lag, column_name=None):
+    """
+    Calculate autocorrelation (lag correlation) for a time series.
+    
+    This function measures how correlated a time series is with its own past.
+    
+    Steps:
+    1. Shift the data backward by the specified lag
+    2. Align the original and lagged series (drop observations without pairs)
+    3. Compute Pearson correlation between x_t and x_{t-lag}
+    
+    Parameters:
+    -----------
+    table : pd.Series or pd.DataFrame
+        Time series data with datetime index. 
+        - If Series: calculates autocorrelation for that series
+        - If DataFrame: calculates autocorrelation for specified column or all numeric columns
+    lag : int
+        Number of periods to lag (e.g., 1 for 1-month lag, 2 for 2-month lag)
+    column_name : str, optional
+        Name of the column to use from the DataFrame for autocorrelation calculation.
+        - If provided and table is DataFrame: calculates autocorrelation for that specific column (returns float)
+        - If None and table is DataFrame: calculates autocorrelation for all numeric columns (returns Series)
+        - If provided and table is Series: parameter is ignored (returns float)
+    
+    Returns:
+    --------
+    float or pd.Series
+        - If input is Series: returns a single correlation coefficient (float)
+        - If input is DataFrame with column_name specified: returns a single correlation coefficient (float)
+        - If input is DataFrame without column_name: returns a Series with correlation for each numeric column
+    
+    Interpretation:
+    ---------------
+    - +1 → perfect positive relationship (momentum)
+    - -1 → perfect negative relationship (mean reversion)
+    - 0 → no predictable relationship
+    
+    Example:
+    --------
+    >>> returns = pd.Series([0.01, 0.02, -0.01, 0.03], 
+    ...                     index=pd.date_range('2020-01', periods=4, freq='M'))
+    >>> calculate_lag_correlation(returns, lag=1)
+    0.5
+    
+    >>> df = pd.DataFrame({'returns': [0.01, 0.02, -0.01, 0.03]}, 
+    ...                    index=pd.date_range('2020-01', periods=4, freq='M'))
+    >>> calculate_lag_correlation(df, lag=1, column_name='returns')
+    0.5
+    """
+    if not isinstance(lag, int) or lag < 1:
+        raise ValueError(f"lag must be a positive integer, got {lag}")
+    
+    # Handle Series input
+    if isinstance(table, pd.Series):
+        # Create lagged series by shifting backward
+        lagged = table.shift(lag)
+        
+        # Align: drop rows where either original or lagged is missing
+        aligned_original = table.iloc[lag:]
+        aligned_lagged = lagged.iloc[lag:]
+        
+        # Remove NaN values from both (in case there are NaN in the middle)
+        mask = pd.notna(aligned_original) & pd.notna(aligned_lagged)
+        aligned_original = aligned_original[mask]
+        aligned_lagged = aligned_lagged[mask]
+        
+        # Compute Pearson correlation
+        if len(aligned_original) < 2:
+            return np.nan
+        
+        correlation = aligned_original.corr(aligned_lagged)
+        return correlation
+    
+    # Handle DataFrame input
+    elif isinstance(table, pd.DataFrame):
+        # If column_name is specified, compute autocorrelation for that column only
+        if column_name is not None:
+            if column_name not in table.columns:
+                raise ValueError(f"Column '{column_name}' not found in DataFrame. Available columns: {list(table.columns)}")
+            
+            # Extract the specified column as a Series
+            series = table[column_name]
+            
+            # Create lagged series by shifting backward
+            lagged = series.shift(lag)
+            
+            # Align: drop rows where either original or lagged is missing
+            aligned_original = series.iloc[lag:]
+            aligned_lagged = lagged.iloc[lag:]
+            
+            # Remove NaN values from both
+            mask = pd.notna(aligned_original) & pd.notna(aligned_lagged)
+            aligned_original = aligned_original[mask]
+            aligned_lagged = aligned_lagged[mask]
+            
+            # Compute Pearson correlation
+            if len(aligned_original) < 2:
+                return np.nan
+            
+            correlation = aligned_original.corr(aligned_lagged)
+            return correlation
+        
+        # If column_name is not specified, compute for all numeric columns (original behavior)
+        else:
+            # Select only numeric columns
+            numeric_cols = table.select_dtypes(include=[np.number]).columns
+            
+            if len(numeric_cols) == 0:
+                raise ValueError("DataFrame contains no numeric columns")
+            
+            correlations = {}
+            
+            for col in numeric_cols:
+                # Create lagged series
+                lagged = table[col].shift(lag)
+                
+                # Align: drop rows where either original or lagged is missing
+                aligned_original = table[col].iloc[lag:]
+                aligned_lagged = lagged.iloc[lag:]
+                
+                # Remove NaN values from both
+                mask = pd.notna(aligned_original) & pd.notna(aligned_lagged)
+                aligned_original = aligned_original[mask]
+                aligned_lagged = aligned_lagged[mask]
+                
+                # Compute Pearson correlation
+                if len(aligned_original) < 2:
+                    correlations[col] = np.nan
+                else:
+                    correlations[col] = aligned_original.corr(aligned_lagged)
+            
+            return pd.Series(correlations)
+    
+    else:
+        raise TypeError(f"Input must be pd.Series or pd.DataFrame, got {type(table)}")
+
+def plot_bar_chart(lags, values, title, save_folder=None):
+    """
+    Create and save a bar chart with dynamic y-axis scaling.
+
+    Parameters:
+    - lags: list or range of x-axis positions (e.g., lag numbers)
+    - values: list of numeric values to plot (e.g., correlations)
+    - title: plot title and filename stem
+    - save_folder: optional folder to save the plot
+    """
+    # Calculate min and max with padding
+    min_corr = min(values)
+    max_corr = max(values)
+    padding = (max_corr - min_corr) * 0.1  # 10% padding
+    
+    # Ensure padding works even if min/max are very close
+    if padding < 0.01:
+        padding = 0.01
+    
+    y_min = min_corr - padding
+    y_max = max_corr + padding
+    
+    # Create bar plot
+    plt.figure(figsize=(10, 6))
+    plt.bar(lags, values, alpha=0.7, color='steelblue', edgecolor='black')
+    plt.xlabel('Lag (months)', fontsize=12)
+    plt.ylabel('Autocorrelation', fontsize=12)
+    plt.title(title, fontsize=14, fontweight='bold')
+    plt.xticks(lags)
+    plt.ylim(y_min, y_max)
+    plt.axhline(y=0, color='black', linestyle='-', linewidth=0.5)
+    plt.grid(axis='y', alpha=0.3, linestyle='--')
+    plt.tight_layout()
+    
+    # Save the plot
+    if save_folder is None:
+        save_folder = os.path.dirname(os.path.abspath(__file__))
+    
+    # Create filename from title (remove special characters, replace spaces with underscores)
+    filename = title.lower().replace(' ', '_').replace('(', '').replace(')', '').replace('-', '_')
+    filename = ''.join(c for c in filename if c.isalnum() or c in ('_', '.'))
+    filename = filename + '.png'
+    
+    filepath = os.path.join(save_folder, filename)
+    plt.savefig(filepath, dpi=300, bbox_inches='tight')
+    
+    #plt.show()
+
+def calculate_partial_autocorrelation(series, lag, verbose=True):
+    """
+    Compute the partial autocorrelation at a specified lag using OLS.
+
+    For lag ℓ, run the regression: r_t = a + b1*r_{t-1} + ... + bℓ*r_{t-ℓ} + e_t
+    The partial autocorrelation at lag ℓ is bℓ.
+
+    Parameters:
+    - series: pd.Series of returns indexed by date in chronological order
+    - lag: int (ℓ >= 1)
+    - verbose: bool, if True prints the coefficient
+
+    Returns:
+    - float: partial autocorrelation at the requested lag (coefficient on r_{t-ℓ})
+    """
+    if not isinstance(series, pd.Series):
+        raise TypeError(f"series must be a pandas Series, got {type(series)}")
+    if not isinstance(lag, int) or lag < 1:
+        raise ValueError(f"lag must be a positive integer, got {lag}")
+
+    # Build lagged design matrix with columns r_{t-1}, ..., r_{t-ℓ}
+    lagged_cols = {f"lag_{k}": series.shift(k) for k in range(1, lag + 1)}
+    X = pd.DataFrame(lagged_cols, index=series.index)
+    y = series
+
+    # Delegate alignment and NaN handling to multivariate_regression
+    results = multivariate_regression(y, X, verbose=False)
+    pacf_value = float(results["slopes"][-1])  # coefficient on the oldest lag r_{t-ℓ}
+
+    if verbose:
+        print(f"Partial autocorrelation at lag {lag}: {pacf_value:.6f}")
+
+    return pacf_value
+
+def garch11_loglikelihood(table, mu, omega, alpha, beta, column_name=None, return_negative=True, use_unconditional_var=True):
+    """
+    Compute the Gaussian GARCH(1,1) log-likelihood for a single return series.
+    
+    Parameters:
+    -----------
+    table : pd.DataFrame or pd.Series
+        Time series data with datetime index. If DataFrame, must specify column_name.
+        If Series, column_name is ignored.
+    mu : float
+        Mean parameter (constant mean)
+    omega : float
+        GARCH intercept parameter (must be > 0)
+    alpha : float
+        ARCH parameter (must be >= 0)
+    beta : float
+        GARCH parameter (must be >= 0)
+    column_name : str, optional
+        Name of the column to use from the DataFrame. Required if table is DataFrame.
+    return_negative : bool, default=True
+        If True, returns negative log-likelihood for optimization (minimization).
+        If False, returns log-likelihood.
+    use_unconditional_var : bool, default=True
+        If True, initializes conditional variance using unconditional variance ω/(1-α-β).
+        If False, uses sample variance of returns.
+    
+    Returns:
+    --------
+    dict with keys:
+        - 'loglikelihood' or 'neg_loglikelihood': float
+            Log-likelihood (or negative log-likelihood if return_negative=True)
+        - 'conditional_variances': pd.Series
+            Conditional variances σ²_t
+        - 'residuals': pd.Series
+            Residuals ε_t = r_t - μ
+        - 'standardized_residuals': pd.Series
+            Standardized residuals z_t = ε_t / σ_t
+    
+    Raises:
+    -------
+    ValueError: If parameter constraints are violated
+    """
+    # Extract return series
+    if isinstance(table, pd.Series):
+        returns = table.copy()
+    elif isinstance(table, pd.DataFrame):
+        if column_name is None:
+            raise ValueError("column_name must be specified when table is a DataFrame")
+        if column_name not in table.columns:
+            raise ValueError(f"Column '{column_name}' not found in DataFrame. Available columns: {list(table.columns)}")
+        returns = table[column_name].copy()
+    else:
+        raise TypeError(f"table must be pd.Series or pd.DataFrame, got {type(table)}")
+    
+    # Convert to numeric if needed (handles string values)
+    if returns.dtype == 'object':
+        returns = pd.to_numeric(returns, errors='coerce')
+    
+    # Drop missing values and sort by date
+    returns = returns.dropna()
+    returns = returns.sort_index()
+    
+    if len(returns) < 2:
+        raise ValueError("Need at least 2 observations to compute GARCH(1,1) log-likelihood")
+    
+    # Enforce parameter constraints
+    if omega <= 0:
+        # Return large penalty for invalid parameters
+        large_penalty = 1e10
+        return {
+            'neg_loglikelihood' if return_negative else 'loglikelihood': large_penalty,
+            'conditional_variances': pd.Series(dtype=float, index=returns.index),
+            'residuals': pd.Series(dtype=float, index=returns.index),
+            'standardized_residuals': pd.Series(dtype=float, index=returns.index)
+        }
+    
+    if alpha < 0 or beta < 0:
+        large_penalty = 1e10
+        return {
+            'neg_loglikelihood' if return_negative else 'loglikelihood': large_penalty,
+            'conditional_variances': pd.Series(dtype=float, index=returns.index),
+            'residuals': pd.Series(dtype=float, index=returns.index),
+            'standardized_residuals': pd.Series(dtype=float, index=returns.index)
+        }
+    
+    if alpha + beta >= 1:
+        large_penalty = 1e10
+        return {
+            'neg_loglikelihood' if return_negative else 'loglikelihood': large_penalty,
+            'conditional_variances': pd.Series(dtype=float, index=returns.index),
+            'residuals': pd.Series(dtype=float, index=returns.index),
+            'standardized_residuals': pd.Series(dtype=float, index=returns.index)
+        }
+    
+    # Compute residuals: ε_t = r_t - μ
+    residuals = returns - mu
+    
+    # Initialize conditional variance
+    if use_unconditional_var:
+        # Use unconditional variance: σ²_0 = ω / (1 - α - β)
+        initial_var = omega / (1 - alpha - beta)
+    else:
+        # Use sample variance of returns
+        initial_var = returns.var()
+    
+    # Ensure initial variance is positive
+    initial_var = max(initial_var, 1e-8)
+    
+    # Create arrays for conditional variances
+    n = len(returns)
+    conditional_variances = np.zeros(n)
+    conditional_variances[0] = initial_var
+    
+    # Iterate variance recursion forward for t = 1, ..., T
+    # σ²_t = ω + α * ε²_{t-1} + β * σ²_{t-1}
+    for t in range(1, n):
+        # Get previous residual squared and previous conditional variance
+        eps_sq_prev = residuals.iloc[t-1] ** 2
+        var_prev = conditional_variances[t-1]
+        
+        # Update conditional variance
+        conditional_variances[t] = omega + alpha * eps_sq_prev + beta * var_prev
+        
+        # Floor variance at tiny positive value to guard against numerical issues
+        conditional_variances[t] = max(conditional_variances[t], 1e-8)
+    
+    # Convert to Series for consistency
+    conditional_variances_series = pd.Series(conditional_variances, index=returns.index)
+    
+    # Compute standardized residuals: z_t = ε_t / σ_t
+    sigma_t = np.sqrt(conditional_variances_series)
+    standardized_residuals = residuals / sigma_t
+    
+    # Compute Gaussian log-likelihood for each t
+    # ℓ_t = -0.5 * (ln(2π) + ln(σ²_t) + ε²_t / σ²_t)
+    log_2pi = np.log(2 * np.pi)
+    log_likelihoods = -0.5 * (log_2pi + np.log(conditional_variances_series) + 
+                               (residuals ** 2) / conditional_variances_series)
+    
+    # Sum over all t to get total log-likelihood L
+    total_loglikelihood = log_likelihoods.sum()
+    
+    # Return negative log-likelihood for optimization (minimization)
+    if return_negative:
+        result_key = 'neg_loglikelihood'
+        result_value = -total_loglikelihood
+    else:
+        result_key = 'loglikelihood'
+        result_value = total_loglikelihood
+    
+    return {
+        result_key: result_value,
+        'conditional_variances': conditional_variances_series,
+        'residuals': residuals,
+        'standardized_residuals': standardized_residuals
+    }
+
+def estimate_garch11(table, column_name=None, initial_params=None, use_unconditional_var=True, verbose=True):
+    """
+    Estimate GARCH(1,1) parameters using maximum likelihood estimation.
+    
+    Parameters:
+    -----------
+    table : pd.DataFrame or pd.Series
+        Time series data with datetime index. If DataFrame, must specify column_name.
+    column_name : str, optional
+        Name of the column to use from the DataFrame. Required if table is DataFrame.
+    initial_params : dict or None, optional
+        Initial parameter values. If None, uses default starting values:
+        - mu: sample mean of returns
+        - omega: 0.01
+        - alpha: 0.1
+        - beta: 0.85
+    use_unconditional_var : bool, default=True
+        If True, initializes conditional variance using unconditional variance.
+        If False, uses sample variance of returns.
+    verbose : bool, default=True
+        If True, prints estimation results.
+    
+    Returns:
+    --------
+    dict with keys:
+        - 'mu_hat': float, estimated mean
+        - 'omega_hat': float, estimated intercept
+        - 'alpha_hat': float, estimated ARCH parameter
+        - 'beta_hat': float, estimated GARCH parameter
+        - 'persistence': float, α̂ + β̂
+        - 'unconditional_variance': float, ω̂ / (1 - α̂ - β̂)
+        - 'loglikelihood': float, log-likelihood at optimum
+        - 'conditional_variances': pd.Series, fitted conditional variances
+        - 'residuals': pd.Series, residuals
+        - 'standardized_residuals': pd.Series, standardized residuals
+        - 'optimization_result': scipy.optimize.OptimizeResult
+    """
+    from scipy.optimize import minimize
+    
+    # Extract return series for initial parameter estimation
+    if isinstance(table, pd.Series):
+        returns = table.copy()
+    elif isinstance(table, pd.DataFrame):
+        if column_name is None:
+            raise ValueError("column_name must be specified when table is a DataFrame")
+        returns = table[column_name].copy()
+    else:
+        raise TypeError(f"table must be pd.Series or pd.DataFrame, got {type(table)}")
+    
+    # Convert to numeric if needed (handles string values)
+    if returns.dtype == 'object':
+        returns = pd.to_numeric(returns, errors='coerce')
+    
+    returns = returns.dropna()
+    returns = returns.sort_index()
+    
+    if len(returns) < 2:
+        raise ValueError("Need at least 2 observations to estimate GARCH(1,1)")
+    
+    # Set initial parameters if not provided
+    if initial_params is None:
+        initial_params = {
+            'mu': float(returns.mean()),
+            'omega': 0.01,
+            'alpha': 0.1,
+            'beta': 0.85
+        }
+    
+    # Objective function for optimization (negative log-likelihood)
+    def objective(params):
+        mu, omega, alpha, beta = params
+        result = garch11_loglikelihood(table, mu, omega, alpha, beta, 
+                                      column_name=column_name, 
+                                      return_negative=True,
+                                      use_unconditional_var=use_unconditional_var)
+        return result['neg_loglikelihood']
+    
+    # Initial parameter vector: [mu, omega, alpha, beta]
+    x0 = [initial_params['mu'], initial_params['omega'], 
+          initial_params['alpha'], initial_params['beta']]
+    
+    # Parameter bounds: omega > 0, alpha >= 0, beta >= 0, alpha + beta < 1
+    # We'll use a small epsilon to ensure strict inequality
+    eps = 1e-6
+    bounds = [
+        (None, None),  # mu: no bounds
+        (eps, None),   # omega: > 0
+        (0, 1 - eps),  # alpha: >= 0 and < 1
+        (0, 1 - eps)   # beta: >= 0 and < 1
+    ]
+    
+    # Constraint: alpha + beta < 1
+    def constraint_alpha_beta(params):
+        return 1 - params[2] - params[3]  # Must be > 0
+    
+    constraints = {'type': 'ineq', 'fun': constraint_alpha_beta}
+    
+    # Optimize using SLSQP which supports both bounds and constraints
+    result = minimize(objective, x0, method='SLSQP', bounds=bounds, 
+                     constraints=constraints, options={'maxiter': 1000})
+    
+    # Extract estimated parameters
+    mu_hat, omega_hat, alpha_hat, beta_hat = result.x
+    
+    # Compute final log-likelihood and diagnostic series
+    final_result = garch11_loglikelihood(table, mu_hat, omega_hat, alpha_hat, beta_hat,
+                                        column_name=column_name,
+                                        return_negative=False,
+                                        use_unconditional_var=use_unconditional_var)
+    
+    # Compute persistence and unconditional variance
+    persistence = alpha_hat + beta_hat
+    unconditional_variance = omega_hat / (1 - persistence) if persistence < 1 else np.nan
+    
+    # Print results if verbose
+    if verbose:
+        print("\n" + "="*60)
+        print("GARCH(1,1) Estimation Results")
+        print("="*60)
+        print(f"μ̂ :                  {mu_hat:.6f}")
+        print(f"ω̂ :                  {omega_hat:.6f}")
+        print(f"α̂ :                  {alpha_hat:.6f}")
+        print(f"β̂:                   {beta_hat:.6f}")
+        print(f"(α̂+β̂):               {persistence:.6f}")
+        print(f"ω̂/(1−α̂−β̂):           {unconditional_variance:.6f}")
+        print(f"Log-likelihood:      {final_result['loglikelihood']:.6f}")
+        print("="*60)
+    
+    return {
+        'mu_hat': mu_hat,
+        'omega_hat': omega_hat,
+        'alpha_hat': alpha_hat,
+        'beta_hat': beta_hat,
+        'persistence': persistence,
+        'unconditional_variance': unconditional_variance,
+        'loglikelihood': final_result['loglikelihood'],
+        'conditional_variances': final_result['conditional_variances'],
+        'residuals': final_result['residuals'],
+        'standardized_residuals': final_result['standardized_residuals'],
+        'optimization_result': result
+    }
+
+if __name__ == "__main__":
+     # Start capturing output for text file generation
+    output_capture.start_capture()
+
+    #table 1
+    file_path1 = "/Users/juanfranciscofernandezontiveros/Dropbox/Yale/Asset Managment/Fall 2/Financial Econometrics/HW2/MSFTandCRSPVWRET.csv"
+    MSFT_CRSP = import_table(sheet_name='MSFTandCRSPVWRET', start_row=1, end_row=7813, start_col='A', end_col='D', header_row=1, table_name='MSFTandCRSPVWRET', file_path=file_path1, date_col='B', date_format='YYYYMMDD', convert_dates=True)
+    #print_table_info(MSFT_CRSP, "MSFTandCRSPVWRET")
+
+    print("="*20)
+    print("1.A")
+    print("MSFTAutocorrelation (Lags 1-20)")
+    
+    # Calculate autocorrelations for lags 1 to 20
+    lags = list(range(1, 21))  # lags from 1 to 20
+    autocorrelations = []
+    
+    for lag in lags:
+        corr = calculate_lag_correlation(MSFT_CRSP, lag=lag, column_name='MSFT')
+        autocorrelations.append(corr)
+        print(f"Lag {lag}: {corr:.6f}")
+    
+    # Plot the autocorrelation results
+    plot_bar_chart(lags, autocorrelations, "MSFT Returns Autocorrelation (Lags 1-20)")
+
+    print()
+    print("="*20)
+    print()
+
+    
+
+
+    print("CRSPVWRET Autocorrelation (Lags 1-20)")
+    # Calculate autocorrelations for lags 1 to 20
+    lags = list(range(1, 21))  # lags from 1 to 20
+    autocorrelations = []
+    
+    for lag in lags:
+        corr = calculate_lag_correlation(MSFT_CRSP, lag=lag, column_name='CRSPVWRET')
+        autocorrelations.append(corr)
+        print(f"Lag {lag}: {corr:.6f}")
+    
+    # Plot the autocorrelation results
+    plot_bar_chart(lags, autocorrelations, "CRSPVWRET Returns Autocorrelation (Lags 1-20)")
+    print()
+    print()
+
+    print("="*20)
+    print("1.B")
+    print("MSFTAutocorrelation^2 (Lags 1-20)")
+    
+    # Create a copy of MSFT_CRSP and square all values in MSFT and CRSPVWRET columns
+    MSFT_CRSP_2 = MSFT_CRSP.copy()
+    # Convert columns to numeric only if they are not already numeric (handles cases where data was read as strings)
+    # This safely converts string values to numeric, leaving already-numeric columns unchanged
+    if MSFT_CRSP_2['MSFT'].dtype == 'object':
+        MSFT_CRSP_2['MSFT'] = pd.to_numeric(MSFT_CRSP_2['MSFT'], errors='coerce')
+    if MSFT_CRSP_2['CRSPVWRET'].dtype == 'object':
+        MSFT_CRSP_2['CRSPVWRET'] = pd.to_numeric(MSFT_CRSP_2['CRSPVWRET'], errors='coerce')
+    # Now square the numeric values
+    MSFT_CRSP_2[['MSFT', 'CRSPVWRET']] = MSFT_CRSP_2[['MSFT', 'CRSPVWRET']] ** 2
+
+    # Calculate autocorrelations for lags 1 to 20
+    lags = list(range(1, 21))  # lags from 1 to 20
+    autocorrelations = []
+    
+    for lag in lags:
+        corr = calculate_lag_correlation(MSFT_CRSP_2, lag=lag, column_name='MSFT')
+        autocorrelations.append(corr)
+        print(f"Lag {lag}: {corr:.6f}")
+    
+    # Plot the autocorrelation results
+    plot_bar_chart(lags, autocorrelations, "MSFT^2 Returns Autocorrelation (Lags 1-20)")
+    
+    print()
+    print("="*20)
+    print()
+    
+    print("CRSPVWRET Autocorrelation^2 (Lags 1-20)")
+
+    # Calculate autocorrelations for lags 1 to 20
+    lags = list(range(1, 21))  # lags from 1 to 20
+    autocorrelations = []
+    
+    for lag in lags:
+        corr = calculate_lag_correlation(MSFT_CRSP_2, lag=lag, column_name='CRSPVWRET')
+        autocorrelations.append(corr)
+        print(f"Lag {lag}: {corr:.6f}")
+        
+    # Plot the autocorrelation results
+    plot_bar_chart(lags, autocorrelations, "CRSPVWRET^2 Returns Autocorrelation (Lags 1-20)")
+
+    print()
+    print()
+
+    print("="*20)
+    print("1.c")
+    print("GARCH(1,1) Estimation for MSFT")
+
+    results = estimate_garch11(MSFT_CRSP, column_name='MSFT', verbose=True)
+
+    print()
+    print()
+
+    print("="*20)
+    print("GARCH(1,1) Estimation for CRSPVWRET")
+
+    results = estimate_garch11(MSFT_CRSP, column_name='CRSPVWRET', verbose=True)
+
+
+    # Stop capturing output
+    output_capture.stop_capture()
+    
+    # Get the root folder (where the script is located)
+    script_dir = os.path.dirname(os.path.abspath(__file__))
+    
+    # Create output filename
+    output_filename = "HW2_Results.txt"
+    output_filepath = os.path.join(script_dir, output_filename)
+    
+    # Write all captured output to the TXT file
+    with open(output_filepath, 'w', encoding='utf-8') as f:
+        for line in output_capture.captured_lines:
+            f.write(line + '\n')
+    
+    print(f"\nAll results have been saved to: {output_filepath}")
+
+
+
